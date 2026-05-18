@@ -44,9 +44,26 @@ def calculate_efficiency(flag_hours: float, actual_hours: float) -> float:
         return 0.0
     return round(flag_hours / actual_hours, 2)
 
-def get_hourly_rate() -> float:
-    """Get the hourly rate for calculations (default: $32.00)"""
-    return 32.0
+def get_hourly_rate(entry_date: Optional[date] = None) -> float:
+    """Get the hourly rate for calculations based on date.
+
+    Tiered rates by date:
+    - 11/2020 - 06/2022: $24.00/hr
+    - 07/2022 - 01/2024: $32.00/hr
+    - 01/2024 - 04/2026: $36.00/hr
+    - 05/2026 - current: $37.50/hr
+    """
+    if entry_date is None:
+        entry_date = date.today()
+
+    if entry_date < date(2022, 7, 1):
+        return 24.0
+    elif entry_date < date(2024, 1, 1):
+        return 32.0
+    elif entry_date < date(2026, 5, 1):
+        return 36.0
+    else:
+        return 37.5
 
 # Task 1: YTD Summary Endpoint
 
@@ -87,8 +104,13 @@ async def get_ytd_summary(year: int = Query(...), db: Session = Depends(get_db))
     unique_dates = set(func.date(t.date) for t in tasks)
     days_worked_ytd = len(unique_dates)
 
-    hourly_rate = get_hourly_rate()
-    income_projection_ytd = flag_hours_ytd * hourly_rate
+    # Calculate YTD income using date-based tiered rates
+    income_projection_ytd = 0.0
+    for task in tasks:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        task_flag_hours = getattr(task, 'flag_hours', task.hours)
+        task_rate = get_hourly_rate(task_date)
+        income_projection_ytd += task_flag_hours * task_rate
 
     target_flag_hours = 2000
     progress_pct = round((flag_hours_ytd / target_flag_hours) * 100, 1)
@@ -196,7 +218,6 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
         )
     ).all()
 
-    hourly_rate = get_hourly_rate()
     month_names = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -219,7 +240,8 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
 
         flag_hours = getattr(task, 'flag_hours', task.hours)
         pay_type = getattr(task, 'pay_type', 'cp').lower()
-        amount = flag_hours * hourly_rate
+        task_rate = get_hourly_rate(task_date)
+        amount = flag_hours * task_rate
 
         monthly_data[month]['flag_hours'] += flag_hours
         monthly_data[month]['actual_hours'] += task.hours
@@ -270,8 +292,6 @@ async def get_pay_types(year: int = Query(...), db: Session = Depends(get_db)):
         )
     ).all()
 
-    hourly_rate = get_hourly_rate()
-
     # Initialize pay type data
     pay_types_data = {
         'cp': {'pay_type': 'Customer Pay', 'flag_hours': 0.0, 'actual_hours': 0.0, 'amount': 0.0},
@@ -281,15 +301,17 @@ async def get_pay_types(year: int = Query(...), db: Session = Depends(get_db)):
 
     # Aggregate by pay type
     for task in tasks:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
         pay_type = getattr(task, 'pay_type', 'cp').lower()
         flag_hours = getattr(task, 'flag_hours', task.hours)
 
         if pay_type not in pay_types_data:
             pay_type = 'cp'
 
+        task_rate = get_hourly_rate(task_date)
         pay_types_data[pay_type]['flag_hours'] += flag_hours
         pay_types_data[pay_type]['actual_hours'] += task.hours
-        pay_types_data[pay_type]['amount'] += flag_hours * hourly_rate
+        pay_types_data[pay_type]['amount'] += flag_hours * task_rate
 
     # Build result
     result = {
@@ -347,19 +369,36 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
     tasks_current = [t for t in tasks_ytd
                      if period_start <= (t.date.date() if hasattr(t.date, 'date') else t.date) <= period_end]
 
-    hourly_rate = get_hourly_rate()
+    # Current period calculations using per-task rates
+    current_period_flag_hours = 0.0
+    current_period_projection = 0.0
+    for task in tasks_current:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        task_flag_hours = getattr(task, 'flag_hours', task.hours)
+        task_rate = get_hourly_rate(task_date)
+        current_period_flag_hours += task_flag_hours
+        current_period_projection += task_flag_hours * task_rate
 
-    # Current period calculations
-    current_period_flag_hours = sum(getattr(t, 'flag_hours', t.hours) for t in tasks_current)
-    current_period_projection = current_period_flag_hours * hourly_rate
+    # Calculate weighted average hourly rate for YTD
+    ytd_total_income = 0.0
+    ytd_total_flag_hours = 0.0
+    for task in tasks_ytd:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        task_flag_hours = getattr(task, 'flag_hours', task.hours)
+        task_rate = get_hourly_rate(task_date)
+        ytd_total_income += task_flag_hours * task_rate
+        ytd_total_flag_hours += task_flag_hours
+
+    # Weighted average rate (use for projections)
+    weighted_avg_rate = ytd_total_income / ytd_total_flag_hours if ytd_total_flag_hours > 0 else 0.0
 
     # Days elapsed in year
     days_elapsed = (today - year_start).days + 1
 
-    # Semi-monthly rate calculation
+    # Semi-monthly rate calculation using weighted average rate
     if days_elapsed > 0:
-        avg_daily_flag = sum(getattr(t, 'flag_hours', t.hours) for t in tasks_ytd) / days_elapsed
-        semi_monthly_rate = avg_daily_flag * 15 * hourly_rate
+        avg_daily_flag = ytd_total_flag_hours / days_elapsed
+        semi_monthly_rate = avg_daily_flag * 15 * weighted_avg_rate
         monthly_projection = semi_monthly_rate * 2
     else:
         semi_monthly_rate = 0.0
@@ -368,7 +407,7 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
     # Peak weekly hours and 12-week rolling average
     all_flag_hours = [getattr(t, 'flag_hours', t.hours) for t in tasks_ytd]
     peak_weekly = max(all_flag_hours) if all_flag_hours else 0.0
-    best_case = peak_weekly * 4.33 * hourly_rate
+    best_case = peak_weekly * 4.33 * weighted_avg_rate
 
     # 12-week rolling average
     if len(all_flag_hours) >= 12:
@@ -378,7 +417,7 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
     else:
         conservative_avg = 0.0
 
-    conservative_case = conservative_avg * 4.33 * hourly_rate
+    conservative_case = conservative_avg * 4.33 * weighted_avg_rate
 
     return {
         "year": year,
