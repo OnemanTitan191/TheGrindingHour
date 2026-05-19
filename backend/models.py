@@ -6,7 +6,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text
 from sqlalchemy.sql import func
 from database import Base
 
-class Session(Base):
+class WorkSession(Base):
     """Work session model"""
     __tablename__ = "sessions"
 
@@ -34,6 +34,7 @@ class Task(Base):
     total = Column(Float, nullable=False)
     pay_type = Column(String, default="cp")
     opcode = Column(String, default="OTHER")
+    source = Column(String, default="tekion", nullable=False)
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

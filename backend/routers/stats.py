@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 from decimal import Decimal
 import math
+import calendar
 from database import get_db
 from models import Task
 
@@ -75,11 +76,12 @@ async def get_ytd_summary(year: int = Query(...), db: Session = Depends(get_db))
     """
     start_date, end_date = get_year_start_end(year)
 
-    # Query all tasks for the year
+    # Query all Tekion tasks for the year
     tasks = db.query(Task).filter(
         and_(
             func.date(Task.date) >= start_date,
-            func.date(Task.date) <= end_date
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
         )
     ).all()
 
@@ -101,7 +103,7 @@ async def get_ytd_summary(year: int = Query(...), db: Session = Depends(get_db))
     ro_count_ytd = len(tasks)
     efficiency_pct_ytd = calculate_efficiency(flag_hours_ytd, actual_hours_ytd)
 
-    unique_dates = set(func.date(t.date) for t in tasks)
+    unique_dates = set(t.date.date() if hasattr(t.date, 'date') else t.date for t in tasks)
     days_worked_ytd = len(unique_dates)
 
     # Calculate YTD income using date-based tiered rates
@@ -138,11 +140,12 @@ async def get_weekly_breakdown(week: str = Query(...), db: Session = Depends(get
     year, week_num = parse_iso_week(week)
     monday, sunday = get_week_dates(year, week_num)
 
-    # Query tasks for the week
+    # Query Tekion tasks for the week
     tasks = db.query(Task).filter(
         and_(
             func.date(Task.date) >= monday,
-            func.date(Task.date) <= sunday
+            func.date(Task.date) <= sunday,
+            Task.source == 'tekion'
         )
     ).order_by(Task.date).all()
 
@@ -210,11 +213,12 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
     """
     start_date, end_date = get_year_start_end(year)
 
-    # Query all tasks for the year
+    # Query all Tekion tasks for the year
     tasks = db.query(Task).filter(
         and_(
             func.date(Task.date) >= start_date,
-            func.date(Task.date) <= end_date
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
         )
     ).all()
 
@@ -288,7 +292,8 @@ async def get_pay_types(year: int = Query(...), db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(
         and_(
             func.date(Task.date) >= start_date,
-            func.date(Task.date) <= end_date
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
         )
     ).all()
 
@@ -350,18 +355,15 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
         period_end = date(today.year, today.month, 15)
     else:
         period_start = date(today.year, today.month, 16)
-        month_end = date(today.year, today.month, 28)
-        if month_end.month != today.month:
-            month_end -= timedelta(days=1)
-        while month_end.month == today.month:
-            month_end += timedelta(days=1)
-        period_end = month_end - timedelta(days=1)
+        last_day_of_month = calendar.monthrange(today.year, today.month)[1]
+        period_end = date(today.year, today.month, last_day_of_month)
 
-    # Query year-to-date tasks
+    # Query year-to-date Tekion tasks
     tasks_ytd = db.query(Task).filter(
         and_(
             func.date(Task.date) >= year_start,
-            func.date(Task.date) <= today
+            func.date(Task.date) <= today,
+            Task.source == 'tekion'
         )
     ).all()
 
@@ -438,7 +440,7 @@ async def get_historical(db: Session = Depends(get_db)):
     GET /stats/historical
     Returns all years with YTD summaries, sorted descending by year
     """
-    tasks = db.query(Task).all()
+    tasks = db.query(Task).filter(Task.source == 'tekion').all()
 
     if not tasks:
         return {"years": []}
@@ -489,7 +491,8 @@ async def get_category_breakdown(year: int = Query(...), db: Session = Depends(g
     tasks = db.query(Task).filter(
         and_(
             func.date(Task.date) >= start_date,
-            func.date(Task.date) <= end_date
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
         )
     ).all()
 
@@ -530,6 +533,89 @@ async def get_category_breakdown(year: int = Query(...), db: Session = Depends(g
 
     return result
 
-# Task 8: Date Filtering (implemented across all endpoints)
+# Task 8: Audit Comparison Endpoint
+
+@router.get("/audit")
+async def get_audit(year: int = Query(...), db: Session = Depends(get_db)):
+    """
+    GET /stats/audit?year=2026
+    Returns per-date comparison of Tekion (official) vs Manual (logged) flag hours
+    Used to identify discrepancies between official and self-tracked data
+    """
+    start_date, end_date = get_year_start_end(year)
+
+    # Query Tekion tasks for the year
+    tekion_tasks = db.query(Task).filter(
+        and_(
+            func.date(Task.date) >= start_date,
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
+        )
+    ).all()
+
+    # Query Manual tasks for the year
+    manual_tasks = db.query(Task).filter(
+        and_(
+            func.date(Task.date) >= start_date,
+            func.date(Task.date) <= end_date,
+            Task.source == 'manual'
+        )
+    ).all()
+
+    # Group by date
+    tekion_by_date = {}
+    for task in tekion_tasks:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        flag_hours = getattr(task, 'flag_hours', task.hours)
+        if task_date not in tekion_by_date:
+            tekion_by_date[task_date] = 0.0
+        tekion_by_date[task_date] += flag_hours
+
+    manual_by_date = {}
+    for task in manual_tasks:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        flag_hours = getattr(task, 'flag_hours', task.hours)
+        if task_date not in manual_by_date:
+            manual_by_date[task_date] = 0.0
+        manual_by_date[task_date] += flag_hours
+
+    # Get all unique dates
+    all_dates = sorted(set(tekion_by_date.keys()) | set(manual_by_date.keys()))
+
+    # Build comparison rows
+    result = {
+        "year": year,
+        "comparisons": [],
+        "totals": {
+            "tekion_total": round(sum(tekion_by_date.values()), 1),
+            "manual_total": round(sum(manual_by_date.values()), 1),
+            "total_delta": round(sum(tekion_by_date.values()) - sum(manual_by_date.values()), 1),
+            "discrepancy_days": 0
+        }
+    }
+
+    discrepancy_count = 0
+    for task_date in all_dates:
+        tekion_hours = tekion_by_date.get(task_date, 0.0)
+        manual_hours = manual_by_date.get(task_date, 0.0)
+        delta = tekion_hours - manual_hours
+
+        if abs(delta) >= 0.25:
+            discrepancy_count += 1
+
+        result['comparisons'].append({
+            "date": task_date.isoformat(),
+            "tekion_hours": round(tekion_hours, 1),
+            "manual_hours": round(manual_hours, 1),
+            "delta": round(delta, 1),
+            "discrepancy": abs(delta) >= 0.25
+        })
+
+    result['totals']['discrepancy_days'] = discrepancy_count
+
+    return result
+
+
+# Task 9: Date Filtering (implemented across all endpoints)
 # All endpoints support year parameter, weekly supports week=YYYY-WXX
 # Empty results return empty arrays, not errors

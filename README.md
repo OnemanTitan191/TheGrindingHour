@@ -1,23 +1,26 @@
 # The Grinding Hour
 
-Labor and efficiency tracking application for automotive technicians.
+Labor and efficiency tracking dashboard for Kia Certified Master Technicians. Consolidates Tekion Tech Reports, RO Lists, and manual Labor Logs into a single source of truth with discrepancy auditing.
+
+**Version:** 2.0.0
+
+## Features
+
+- **Dashboard** — YTD flag hours, efficiency %, income projection, monthly/weekly breakdowns
+- **Upload Pipeline** — Import Tekion Tech Reports, RO Lists, and manual Labor Logs (xlsx)
+- **Audit Tab** — Date-by-date comparison between Tekion-recorded and manually-tracked hours
+- **Source Isolation** — Dashboard shows only Tekion-verified hours; manual data available in audit only
 
 ## Tech Stack
 
-**Backend:**
-- FastAPI (Python)
-- SQLite database
-- JWT authentication
-
-**Frontend:**
-- Vite + React + TypeScript
-- Tailwind CSS
-- Real-time labor tracking UI
+- **Backend:** FastAPI + SQLAlchemy + SQLite (Python 3.11)
+- **Frontend:** Vite + React + TypeScript + Tailwind CSS
+- **Auth:** JWT (8-hour tokens)
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
 
 ### Windows (PowerShell)
@@ -25,82 +28,70 @@ Labor and efficiency tracking application for automotive technicians.
 .\start.ps1
 ```
 
-### macOS / Linux (Bash)
-```bash
-bash start.sh
+### Manual
+
+**Backend:**
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
 ```
+Runs on http://localhost:8001
 
-The startup scripts will:
-1. Create and activate Python virtual environment
-2. Install backend dependencies
-3. Install frontend dependencies
-4. Start backend server on http://localhost:8001
-5. Start frontend development server on http://localhost:5174
-6. Open your browser automatically
-
-## Ports
-
-- **Backend API:** http://localhost:8001
-- **Frontend:** http://localhost:5174
-
-## First Run
-
-1. Launch the application (using `start.ps1` or `start.sh`)
-2. Log in with your configured password (from `.env`)
-3. Create a work session
-4. Log hours and tasks
-5. Export labor records as needed
+**Frontend:**
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+Runs on http://localhost:5174
 
 ## Configuration
 
-Copy `.env.example` to `.env` and configure:
-- `GRINDING_HOUR_PASSWORD` — Your session password
-- `HOURLY_RATE` — Labor rate (default 32.00)
-- `SECRET_KEY` — JWT signing key (generate a secure random string)
+Copy `.env.example` to `.env`:
+
+```
+GRINDING_HOUR_PASSWORD=your-password
+SECRET_KEY=your-random-secret-key
+```
+
+## Data Import Workflow
+
+1. Log in at http://localhost:5174
+2. Go to **Upload** tab
+3. Import files in order:
+   - **Tech Report** (xlsx) — Tekion technician report (2024–2026)
+   - **RO List** (xlsx) — Tekion RO list (2023)
+   - **Labor Log** (xlsx) — Manual 2026 Kia tracking sheet
+4. View **Dashboard** for Tekion-verified stats
+5. View **Audit** to compare Tekion vs manual hours by date
 
 ## Project Structure
 
 ```
 grinding-hour/
-├── backend/              # FastAPI server
+├── backend/
 │   ├── main.py
 │   ├── database.py
-│   ├── models.py
+│   ├── models.py           # WorkSession, Task, Export
 │   ├── auth.py
-│   ├── backup.py
-│   ├── routers/         # API endpoints
-│   ├── parsers/         # Data import parsers
-│   └── requirements.txt
-├── frontend/            # Vite + React app
-│   ├── src/
-│   ├── vite.config.ts
-│   └── tailwind.config.ts
-├── data/               # User data (gitignored)
-│   ├── uploads/
-│   ├── exports/
-│   └── backups/
-├── .env.example        # Configuration template
-├── .gitignore
-├── start.ps1          # Windows startup
-└── start.sh           # Unix startup
-```
-
-## Development
-
-### Backend only
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8001
-```
-
-### Frontend only
-```bash
-cd frontend
-npm install
-npm run dev
+│   ├── routers/
+│   │   ├── stats.py        # Dashboard + audit endpoints
+│   │   └── upload.py       # File import endpoints
+│   └── parsers/
+│       ├── tech_report.py  # Tekion Tech Report parser
+│       ├── ro_list.py      # Tekion RO List parser
+│       └── labor_log.py    # Manual Labor Log parser
+├── frontend/src/
+│   ├── pages/              # Dashboard, Upload, Audit, Login
+│   ├── components/         # Layout, charts, summary cards
+│   └── api/client.ts
+├── data/                   # User data (gitignored)
+├── .env.example
+├── start.ps1
+└── start.sh
 ```
 
 ## License

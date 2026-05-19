@@ -6,12 +6,20 @@ Labor and efficiency tracking application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from routers import stats
+from routers import stats, upload
+from database import engine
+from models import Base
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
 
 app = FastAPI(
     title="The Grinding Hour API",
     description="Labor tracking and efficiency dashboard",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -25,6 +33,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(stats.router)
+app.include_router(upload.router)
 
 @app.get("/")
 async def root():
