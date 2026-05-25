@@ -15,22 +15,28 @@ interface PayTypeBreakdownProps {
 }
 
 const PAY_TYPE_COLORS = {
-  'Customer Pay': '#5A7C5C',
-  'Warranty': '#D4AF37',
-  'Internal': '#DC3545',
+  'Customer Pay': '#c9a84c',
+  'Warranty': '#a02828',
+  'Internal': '#8ab0d8',
+}
+
+const PAY_TYPE_BORDER: Record<string, string> = {
+  'Customer Pay': 'border-erebor-gold',
+  'Warranty': 'border-erebor-debit',
+  'Internal': 'border-erebor-mithril',
 }
 
 export const PayTypeBreakdown: React.FC<PayTypeBreakdownProps> = ({ data, loading }) => {
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 mb-6 h-96 animate-pulse"></div>
+      <div className="bg-erebor-surface carved-border rounded-lg p-6 mb-6 h-64 animate-pulse border border-erebor-border"></div>
     )
   }
 
   if (!data || data.pay_types.length === 0) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 mb-6">
-        <p className="text-slate-400 text-center">No data available</p>
+      <div className="bg-erebor-surface carved-border rounded-lg p-6 mb-6 border border-erebor-border">
+        <p className="text-erebor-rune text-center">No data available</p>
       </div>
     )
   }
@@ -43,64 +49,71 @@ export const PayTypeBreakdown: React.FC<PayTypeBreakdownProps> = ({ data, loadin
   }))
 
   return (
-    <div className="bg-slate-800 rounded-lg p-6 mb-6">
-      <h3 className="text-lg font-bold text-white mb-4">Pay Type Breakdown</h3>
-      <ResponsiveContainer width="100%" height={320}>
-        <PieChart>
-          <Pie
-            data={chartData}
-            cx="50%"
-            cy="50%"
-            labelLine={false}
-            label={({ name, value }) => `${name}: ${value.toFixed(1)} hrs`}
-            outerRadius={100}
-            fill="#8884d8"
-            dataKey="value"
-          >
-            {chartData.map((entry, index) => (
-              <Cell
-                key={`cell-${index}`}
-                fill={
-                  PAY_TYPE_COLORS[entry.name as keyof typeof PAY_TYPE_COLORS] || '#8884d8'
-                }
+    <div className="bg-erebor-surface carved-border rounded-lg p-6 mb-6 border border-erebor-border">
+      <h3 className="font-cinzel text-xs uppercase tracking-[0.2em] text-erebor-parchment-dim mb-4">Pay Type Breakdown</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left: pie chart */}
+        <div>
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart>
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, value, x, y, textAnchor, dominantBaseline }: any) => (
+                  <text x={x} y={y} textAnchor={textAnchor} dominantBaseline={dominantBaseline}
+                    fill="#a89878" fontSize={10} fontFamily="Inter, sans-serif">
+                    {`${name}: ${value.toFixed(1)} hrs`}
+                  </text>
+                )}
+                outerRadius={90}
+                dataKey="value"
+              >
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={PAY_TYPE_COLORS[entry.name as keyof typeof PAY_TYPE_COLORS] || '#5a6a7a'}
+                  />
+                ))}
+              </Pie>
+              <Tooltip
+                content={({ active, payload }: any) => {
+                  if (active && payload && payload[0]) {
+                    const entry = payload[0].payload
+                    return (
+                      <div className="bg-erebor-surface border border-erebor-border rounded p-3">
+                        <p className="text-erebor-parchment font-cinzel text-xs uppercase tracking-wide">{entry.name}</p>
+                        <p className="text-erebor-parchment-dim text-sm font-mono mt-1">{entry.value.toFixed(1)} hrs</p>
+                        <p className="text-erebor-parchment-dim text-sm font-mono">{formatCurrency(entry.amount)}</p>
+                      </div>
+                    )
+                  }
+                  return null
+                }}
               />
-            ))}
-          </Pie>
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#1e293b',
-              border: '1px solid #475569',
-              borderRadius: '8px',
-            }}
-            labelStyle={{ color: '#f1f5f9' }}
-            content={({ active, payload }: any) => {
-              if (active && payload && payload[0]) {
-                const entry = payload[0].payload
-                return (
-                  <div className="bg-slate-900 border border-slate-700 rounded p-3">
-                    <p className="text-white font-semibold">{entry.name}</p>
-                    <p className="text-slate-300 text-sm">
-                      {entry.value.toFixed(1)} hrs
-                    </p>
-                    <p className="text-slate-300 text-sm">
-                      {formatCurrency(entry.amount)}
-                    </p>
-                  </div>
-                )
-              }
-              return null
-            }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        {data.pay_types.map((pt) => (
-          <div key={pt.pay_type} className="p-3 bg-slate-700 rounded">
-            <p className="text-slate-400 text-xs font-medium">{pt.pay_type}</p>
-            <p className="text-white font-mono font-bold">{pt.flag_hours.toFixed(1)} hrs</p>
-            <p className="text-slate-300 text-sm font-mono">{formatCurrency(pt.amount)}</p>
-          </div>
-        ))}
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Right: stacked sub-tiles */}
+        <div className="flex flex-col gap-3 justify-center">
+          {data.pay_types.map((pt) => {
+            const borderClass = PAY_TYPE_BORDER[pt.pay_type] ?? 'border-erebor-border'
+            return (
+              <div
+                key={pt.pay_type}
+                className={`p-3 bg-erebor-surface2 rounded border border-erebor-border border-l-4 ${borderClass}`}
+              >
+                <p className="font-cinzel text-[9px] uppercase tracking-[0.25em] text-erebor-parchment-dim">{pt.pay_type}</p>
+                <div className="flex items-end justify-between mt-1">
+                  <p className="text-erebor-parchment font-mono font-bold">{pt.flag_hours.toFixed(1)} hrs</p>
+                  <p className="text-erebor-parchment-dim text-sm font-mono">{formatCurrency(pt.amount)}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

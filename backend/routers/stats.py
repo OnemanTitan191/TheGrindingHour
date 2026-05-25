@@ -12,7 +12,8 @@ from decimal import Decimal
 import math
 import calendar
 from database import get_db
-from models import Task
+from models import Task, WorkSession
+from routers.rates import get_rate_for_date
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -43,28 +44,7 @@ def calculate_efficiency(flag_hours: float, actual_hours: float) -> float:
     """Calculate efficiency percentage (flag_hours / actual_hours)"""
     if actual_hours == 0:
         return 0.0
-    return round(flag_hours / actual_hours, 2)
-
-def get_hourly_rate(entry_date: Optional[date] = None) -> float:
-    """Get the hourly rate for calculations based on date.
-
-    Tiered rates by date:
-    - 11/2020 - 06/2022: $24.00/hr
-    - 07/2022 - 01/2024: $32.00/hr
-    - 01/2024 - 04/2026: $36.00/hr
-    - 05/2026 - current: $37.50/hr
-    """
-    if entry_date is None:
-        entry_date = date.today()
-
-    if entry_date < date(2022, 7, 1):
-        return 24.0
-    elif entry_date < date(2024, 1, 1):
-        return 32.0
-    elif entry_date < date(2026, 5, 1):
-        return 36.0
-    else:
-        return 37.5
+    return round((flag_hours / actual_hours) * 100, 2)
 
 # Task 1: YTD Summary Endpoint
 
@@ -93,29 +73,65 @@ async def get_ytd_summary(year: int = Query(...), db: Session = Depends(get_db))
             "ro_count_ytd": 0,
             "efficiency_pct_ytd": 0.0,
             "days_worked_ytd": 0,
-            "income_projection_ytd": 0.0,
+            "avg_ro_per_day": 0.0,
+            "ytd_income": 0.0,
             "target_flag_hours": 2000,
-            "progress_pct": 0.0
+            "progress_pct": 0.0,
+            "month_flag_hours": 0.0,
+            "week_flag_hours": 0.0,
         }
 
-    flag_hours_ytd = sum(getattr(t, 'flag_hours', t.hours) for t in tasks)
-    actual_hours_ytd = sum(t.hours for t in tasks)
-    ro_count_ytd = len(tasks)
+    flag_hours_ytd = sum((t.flag_hours if t.flag_hours is not None else t.hours or 0.0) for t in tasks)
+
+    # Actual hours = sum of daily Attendance_ sheet totals stored per WorkSession
+    sessions = db.query(WorkSession).filter(
+        and_(
+            func.date(WorkSession.date) >= start_date,
+            func.date(WorkSession.date) <= end_date,
+        )
+    ).all()
+    actual_hours_ytd = sum(s.attendance_hours for s in sessions if s.attendance_hours)
+
+    ro_count_ytd = len(set(t.ro_number for t in tasks if t.ro_number)) or len(tasks)
     efficiency_pct_ytd = calculate_efficiency(flag_hours_ytd, actual_hours_ytd)
 
     unique_dates = set(t.date.date() if hasattr(t.date, 'date') else t.date for t in tasks)
     days_worked_ytd = len(unique_dates)
 
-    # Calculate YTD income using date-based tiered rates
-    income_projection_ytd = 0.0
-    for task in tasks:
-        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
-        task_flag_hours = getattr(task, 'flag_hours', task.hours)
-        task_rate = get_hourly_rate(task_date)
-        income_projection_ytd += task_flag_hours * task_rate
+    # Weeks elapsed — used for both avg RO/day and income projection
+    today = date.today()
+    if year < today.year:
+        weeks_elapsed = 52.0
+    else:
+        days_elapsed = max((today - start_date).days + 1, 7)
+        weeks_elapsed = days_elapsed / 7.0
 
-    target_flag_hours = 2000
+    # Avg RO per day: 4-day work week standard (ignores random days off)
+    standard_work_days = 4.0 * weeks_elapsed
+    avg_ro_per_day = round(ro_count_ytd / standard_work_days, 1) if standard_work_days > 0 else 0.0
+
+    rate_date = today if year >= today.year else date(year, 12, 31)
+    ytd_income = round(flag_hours_ytd * get_rate_for_date(db, rate_date), 2)
+
+    target_flag_hours = 2500 if year >= 2026 else 2000
     progress_pct = round((flag_hours_ytd / target_flag_hours) * 100, 1)
+
+    # Current month flag hours (same month number as today, in the requested year)
+    cur_month = today.month
+    def task_date(t) -> date:
+        return t.date.date() if hasattr(t.date, 'date') else t.date
+    month_flag_hours = round(sum(
+        (t.flag_hours if t.flag_hours is not None else t.hours or 0.0)
+        for t in tasks if task_date(t).month == cur_month
+    ), 1)
+
+    # Current week flag hours (same ISO week as today, in the requested year)
+    _, cur_week_num = get_iso_week(today)
+    wk_monday, wk_sunday = get_week_dates(year, cur_week_num)
+    week_flag_hours = round(sum(
+        (t.flag_hours if t.flag_hours is not None else t.hours or 0.0)
+        for t in tasks if wk_monday <= task_date(t) <= wk_sunday
+    ), 1)
 
     return {
         "year": year,
@@ -124,9 +140,12 @@ async def get_ytd_summary(year: int = Query(...), db: Session = Depends(get_db))
         "ro_count_ytd": ro_count_ytd,
         "efficiency_pct_ytd": efficiency_pct_ytd,
         "days_worked_ytd": days_worked_ytd,
-        "income_projection_ytd": round(income_projection_ytd, 2),
+        "avg_ro_per_day": avg_ro_per_day,
+        "ytd_income": ytd_income,
         "target_flag_hours": target_flag_hours,
-        "progress_pct": progress_pct
+        "progress_pct": progress_pct,
+        "month_flag_hours": month_flag_hours,
+        "week_flag_hours": week_flag_hours,
     }
 
 # Task 2: Weekly Breakdown Endpoint
@@ -149,6 +168,18 @@ async def get_weekly_breakdown(week: str = Query(...), db: Session = Depends(get
         )
     ).order_by(Task.date).all()
 
+    # Attendance hours from WorkSession (actual clock hours per day)
+    sessions = db.query(WorkSession).filter(
+        and_(
+            func.date(WorkSession.date) >= monday,
+            func.date(WorkSession.date) <= sunday,
+        )
+    ).all()
+    attendance_by_date = {
+        (s.date.date() if hasattr(s.date, 'date') else s.date): (s.attendance_hours or 0.0)
+        for s in sessions
+    }
+
     # Group tasks by date
     daily_data = {}
     for i in range(7):
@@ -156,7 +187,7 @@ async def get_weekly_breakdown(week: str = Query(...), db: Session = Depends(get
         daily_data[current_date] = {
             "date": current_date.isoformat(),
             "flag_hours": 0.0,
-            "actual_hours": 0.0,
+            "actual_hours": attendance_by_date.get(current_date, 0.0),
             "ro_count": 0,
             "cp_hours": 0.0,
             "wp_hours": 0.0,
@@ -170,7 +201,6 @@ async def get_weekly_breakdown(week: str = Query(...), db: Session = Depends(get
             pay_type = getattr(task, 'pay_type', 'cp').lower()
 
             daily_data[task_date]['flag_hours'] += flag_hours
-            daily_data[task_date]['actual_hours'] += task.hours
             daily_data[task_date]['ro_count'] += 1
 
             if pay_type == 'cp':
@@ -203,6 +233,98 @@ async def get_weekly_breakdown(week: str = Query(...), db: Session = Depends(get
 
     return result
 
+
+@router.get("/yearly-weeks")
+async def get_yearly_weeks(year: int = Query(...), db: Session = Depends(get_db)):
+    """
+    GET /stats/yearly-weeks?year=2026
+    Returns one row per ISO week for the year: flag hours, efficiency, RO count, pay type split, week delta.
+    """
+    start_date, end_date = get_year_start_end(year)
+
+    tasks = db.query(Task).filter(
+        and_(
+            func.date(Task.date) >= start_date,
+            func.date(Task.date) <= end_date,
+            Task.source == 'tekion'
+        )
+    ).all()
+
+    # Attendance hours from WorkSession records (actual clock hours per day)
+    sessions = db.query(WorkSession).filter(
+        and_(
+            func.date(WorkSession.date) >= start_date,
+            func.date(WorkSession.date) <= end_date,
+        )
+    ).all()
+    weekly_attendance: dict = {}
+    for session in sessions:
+        s_date = session.date.date() if hasattr(session.date, 'date') else session.date
+        iso = s_date.isocalendar()
+        wk = f"{iso[0]}-W{iso[1]:02d}"
+        weekly_attendance[wk] = weekly_attendance.get(wk, 0.0) + (session.attendance_hours or 0.0)
+
+    weeks_data: dict = {}
+
+    for task in tasks:
+        task_date = task.date.date() if hasattr(task.date, 'date') else task.date
+        iso = task_date.isocalendar()
+        iso_year, iso_week = iso[0], iso[1]
+        week_key = f"{iso_year}-W{iso_week:02d}"
+
+        if week_key not in weeks_data:
+            jan4 = date(iso_year, 1, 4)
+            monday = jan4 - timedelta(days=jan4.weekday()) + timedelta(weeks=iso_week - 1)
+            weeks_data[week_key] = {
+                'week': week_key,
+                'start_date': monday.isoformat(),
+                'end_date': (monday + timedelta(days=6)).isoformat(),
+                'flag_hours': 0.0,
+                'cp_hours': 0.0,
+                'wp_hours': 0.0,
+                'ip_hours': 0.0,
+                'ro_numbers': set(),
+            }
+
+        flag_hours = getattr(task, 'flag_hours', task.hours)
+        pay_type = getattr(task, 'pay_type', 'cp').lower()
+        weeks_data[week_key]['flag_hours'] += flag_hours
+
+        if pay_type == 'cp':
+            weeks_data[week_key]['cp_hours'] += flag_hours
+        elif pay_type == 'wp':
+            weeks_data[week_key]['wp_hours'] += flag_hours
+        elif pay_type == 'ip':
+            weeks_data[week_key]['ip_hours'] += flag_hours
+
+        if task.ro_number:
+            weeks_data[week_key]['ro_numbers'].add(task.ro_number)
+
+    sorted_weeks = sorted(weeks_data.values(), key=lambda w: w['week'])
+
+    result_weeks = []
+    prev_flag = 0.0
+    for w in sorted_weeks:
+        flag_hours = round(w['flag_hours'], 1)
+        actual_hours = round(weekly_attendance.get(w['week'], 0.0), 1)
+        result_weeks.append({
+            'week': w['week'],
+            'start_date': w['start_date'],
+            'end_date': w['end_date'],
+            'flag_hours': flag_hours,
+            'actual_hours': actual_hours,
+            'efficiency_pct': calculate_efficiency(flag_hours, actual_hours),
+            'ro_count': len(w['ro_numbers']),
+            'cp_hours': round(w['cp_hours'], 1),
+            'wp_hours': round(w['wp_hours'], 1),
+            'ip_hours': round(w['ip_hours'], 1),
+            'week_delta': round(flag_hours - prev_flag, 1),
+        })
+        prev_flag = flag_hours
+
+    return {'year': year, 'weeks': result_weeks}
+
+
 # Task 3: Monthly Breakdown Endpoint
 
 @router.get("/monthly")
@@ -225,6 +347,14 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
     month_names = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
 
+    # Attendance hours from WorkSession records (actual clock hours per day)
+    sessions = db.query(WorkSession).filter(
+        and_(
+            func.date(WorkSession.date) >= start_date,
+            func.date(WorkSession.date) <= end_date,
+        )
+    ).all()
+
     # Initialize month data
     monthly_data = {}
     for month in range(1, 13):
@@ -237,6 +367,10 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
             "ip_amount": 0.0,
         }
 
+    for session in sessions:
+        s_date = session.date.date() if hasattr(session.date, 'date') else session.date
+        monthly_data[s_date.month]['actual_hours'] += session.attendance_hours or 0.0
+
     # Aggregate tasks by month
     for task in tasks:
         task_date = task.date.date() if hasattr(task.date, 'date') else task.date
@@ -244,11 +378,10 @@ async def get_monthly_breakdown(year: int = Query(...), db: Session = Depends(ge
 
         flag_hours = getattr(task, 'flag_hours', task.hours)
         pay_type = getattr(task, 'pay_type', 'cp').lower()
-        task_rate = get_hourly_rate(task_date)
+        task_rate = get_rate_for_date(db, task_date)
         amount = flag_hours * task_rate
 
         monthly_data[month]['flag_hours'] += flag_hours
-        monthly_data[month]['actual_hours'] += task.hours
 
         if pay_type == 'cp':
             monthly_data[month]['cp_amount'] += amount
@@ -313,7 +446,7 @@ async def get_pay_types(year: int = Query(...), db: Session = Depends(get_db)):
         if pay_type not in pay_types_data:
             pay_type = 'cp'
 
-        task_rate = get_hourly_rate(task_date)
+        task_rate = get_rate_for_date(db, task_date)
         pay_types_data[pay_type]['flag_hours'] += flag_hours
         pay_types_data[pay_type]['actual_hours'] += task.hours
         pay_types_data[pay_type]['amount'] += flag_hours * task_rate
@@ -377,7 +510,7 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
     for task in tasks_current:
         task_date = task.date.date() if hasattr(task.date, 'date') else task.date
         task_flag_hours = getattr(task, 'flag_hours', task.hours)
-        task_rate = get_hourly_rate(task_date)
+        task_rate = get_rate_for_date(db, task_date)
         current_period_flag_hours += task_flag_hours
         current_period_projection += task_flag_hours * task_rate
 
@@ -387,7 +520,7 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
     for task in tasks_ytd:
         task_date = task.date.date() if hasattr(task.date, 'date') else task.date
         task_flag_hours = getattr(task, 'flag_hours', task.hours)
-        task_rate = get_hourly_rate(task_date)
+        task_rate = get_rate_for_date(db, task_date)
         ytd_total_income += task_flag_hours * task_rate
         ytd_total_flag_hours += task_flag_hours
 
@@ -421,6 +554,9 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
 
     conservative_case = conservative_avg * 4.33 * weighted_avg_rate
 
+    deduction_rate = 0.26
+    annual_gross = round(semi_monthly_rate * 24, 2)
+
     return {
         "year": year,
         "current_period": f"{period_start.isoformat()} to {period_end.isoformat()}",
@@ -429,7 +565,17 @@ async def get_income_projection(year: int = Query(...), db: Session = Depends(ge
         "semi_monthly_rate": round(semi_monthly_rate, 2),
         "monthly_projection": round(monthly_projection, 2),
         "best_case": round(best_case, 2),
-        "conservative_case": round(conservative_case, 2)
+        "conservative_case": round(conservative_case, 2),
+        "deduction_rate": deduction_rate,
+        "net_paycheck": round(current_period_projection * (1 - deduction_rate), 2),
+        "tax_deductions_paycheck": round(current_period_projection * deduction_rate, 2),
+        "annual_gross": annual_gross,
+        "annual_net": round(annual_gross * (1 - deduction_rate), 2),
+        "annual_taxes": round(annual_gross * deduction_rate, 2),
+        "best_case_net": round(best_case * (1 - deduction_rate), 2),
+        "best_case_taxes": round(best_case * deduction_rate, 2),
+        "conservative_net": round(conservative_case * (1 - deduction_rate), 2),
+        "conservative_taxes": round(conservative_case * deduction_rate, 2),
     }
 
 # Task 6: Year-over-Year Historical Endpoint

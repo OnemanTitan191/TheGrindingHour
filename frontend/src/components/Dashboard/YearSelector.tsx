@@ -33,19 +33,19 @@ export const YearSelector: React.FC<YearSelectorProps> = ({ selectedYear, onYear
   }, [])
 
   if (loading) {
-    return <div className="inline-block animate-pulse">Loading years...</div>
+    return <div className="inline-block animate-pulse text-erebor-rune text-xs font-cinzel">Loading years...</div>
   }
 
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="year-select" className="text-slate-400 font-medium">
+      <label htmlFor="year-select" className="font-cinzel text-xs uppercase tracking-[0.15em] text-erebor-parchment-dim">
         Year:
       </label>
       <select
         id="year-select"
         value={selectedYear}
         onChange={(e) => onYearChange(parseInt(e.target.value, 10))}
-        className="px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 hover:border-slate-500 focus:border-blue-500 focus:outline-none font-mono"
+        className="appearance-none px-4 py-2 bg-erebor-surface2 text-erebor-parchment rounded border border-erebor-border hover:border-erebor-gold-dim focus:border-erebor-gold focus:outline-none font-mono transition-colors"
       >
         {availableYears.map((year) => (
           <option key={year} value={year}>

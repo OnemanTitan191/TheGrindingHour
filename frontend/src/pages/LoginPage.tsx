@@ -11,19 +11,14 @@ export const LoginPage: React.FC = () => {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
-      // Placeholder for actual authentication
-      // In a real app, this would call an auth endpoint
-      const hardcodedPassword = 'Accord#25'
-
-      if (password === hardcodedPassword) {
+      if (password === 'Accord#25') {
         localStorage.setItem('authenticated', 'true')
         navigate('/dashboard')
       } else {
         setError('Invalid password')
       }
-    } catch (err) {
+    } catch {
       setError('Authentication failed')
     } finally {
       setLoading(false)
@@ -31,17 +26,22 @@ export const LoginPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-erebor-bg flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="bg-slate-800 rounded-lg shadow-2xl p-8 border border-slate-700">
+        <div className="bg-erebor-surface2 rounded-lg shadow-2xl p-8 border border-erebor-border">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">The Grinding Hour</h1>
-            <p className="text-slate-400">Labor & Efficiency Tracking</p>
+            <div className="flex justify-center mb-4">
+              <svg viewBox="0 0 24 24" className="w-12 h-12 text-erebor-gold" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.25 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+              </svg>
+            </div>
+            <h1 className="font-cinzel text-2xl font-bold text-erebor-parchment mb-1 tracking-widest uppercase">Grinding Hour</h1>
+            <p className="text-erebor-rune text-sm">Labor & Efficiency Tracking</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+              <label htmlFor="password" className="block text-xs font-cinzel uppercase tracking-widest text-erebor-rune mb-2">
                 Password
               </label>
               <input
@@ -50,13 +50,13 @@ export const LoginPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
-                className="w-full px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 hover:border-slate-500 focus:border-blue-500 focus:outline-none transition-colors"
+                className="w-full px-4 py-2 bg-erebor-surface3 text-erebor-parchment rounded border border-erebor-border hover:border-erebor-gold focus:border-erebor-gold focus:outline-none transition-colors font-mono"
                 disabled={loading}
               />
             </div>
 
             {error && (
-              <div className="bg-red-900 border border-red-700 rounded p-3 text-red-200 text-sm">
+              <div className="bg-erebor-debit-dim/40 border border-erebor-debit rounded p-3 text-erebor-parchment-dim text-sm">
                 {error}
               </div>
             )}
@@ -64,15 +64,11 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white font-semibold py-2 rounded transition-colors"
+              className="w-full bg-erebor-gold/20 hover:bg-erebor-gold/30 disabled:opacity-50 text-erebor-gold border border-erebor-gold/40 font-cinzel text-xs uppercase tracking-[0.2em] py-2.5 rounded transition-colors"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Signing in...' : 'Enter'}
             </button>
           </form>
-
-          <div className="mt-6 p-4 bg-slate-700 rounded text-center">
-            <p className="text-slate-400 text-xs">Password: <span className="font-mono font-bold text-slate-300">Accord#25</span></p>
-          </div>
         </div>
       </div>
     </div>

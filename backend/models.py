@@ -2,7 +2,7 @@
 SQLAlchemy models for labor tracking
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, Date
 from sqlalchemy.sql import func
 from database import Base
 
@@ -17,6 +17,7 @@ class WorkSession(Base):
     end_time = Column(DateTime(timezone=True), nullable=True)
     total_hours = Column(Float, default=0.0)
     total_rate = Column(Float, default=0.0)
+    attendance_hours = Column(Float, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -35,9 +36,19 @@ class Task(Base):
     pay_type = Column(String, default="cp")
     opcode = Column(String, default="OTHER")
     source = Column(String, default="tekion", nullable=False)
+    ro_number = Column(String, nullable=True)
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class LaborRate(Base):
+    """Tiered hourly rate schedule — rate applies from effective_date onward"""
+    __tablename__ = "labor_rates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    effective_date = Column(Date, nullable=False)
+    rate = Column(Float, nullable=False)
+    notes = Column(String, nullable=True)
 
 class Export(Base):
     """Export records for backup/archive"""

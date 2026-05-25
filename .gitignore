@@ -66,8 +66,12 @@ yarn.lock
 
 # Database
 *.db
+*.db.*
 *.sqlite
 *.sqlite3
+
+# Backend data directory (live DB + backups — never commit)
+backend/data/
 
 # Data directories (user uploads and backups)
 /data/uploads/*

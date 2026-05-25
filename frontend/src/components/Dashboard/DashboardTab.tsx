@@ -1,31 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { apiClient, SummaryResponse, DailyData, MonthlyResponse, PayTypesResponse, IncomeResponse } from '../../api/client'
-import { getCurrentWeek } from '../../utils/format'
+import { apiClient, SummaryResponse, MonthlyResponse, PayTypesResponse, YearlyWeeksResponse } from '../../api/client'
 import { YTDCards } from './YTDCards'
-import { WeekKPICard } from './WeekKPICard'
+import { LaborTrackingTile } from './LaborTrackingTile'
 import { WeeklyTable } from './WeeklyTable'
 import { MonthlyChart } from './MonthlyChart'
 import { PayTypeBreakdown } from './PayTypeBreakdown'
-import { IncomeProjection } from './IncomeProjection'
-import { YearSelector } from './YearSelector'
 
-export const DashboardTab: React.FC = () => {
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+interface DashboardTabProps {
+  selectedYear: number
+  refreshKey: number
+}
+
+export const DashboardTab: React.FC<DashboardTabProps> = ({ selectedYear, refreshKey }) => {
   const [summary, setSummary] = useState<SummaryResponse | null>(null)
-  const [weeklyData, setWeeklyData] = useState<DailyData[] | null>(null)
   const [monthlyData, setMonthlyData] = useState<MonthlyResponse | null>(null)
   const [payTypesData, setPayTypesData] = useState<PayTypesResponse | null>(null)
-  const [incomeData, setIncomeData] = useState<IncomeResponse | null>(null)
+  const [yearlyWeeksData, setYearlyWeeksData] = useState<YearlyWeeksResponse | null>(null)
 
   const [loadingSummary, setLoadingSummary] = useState(true)
-  const [loadingWeekly, setLoadingWeekly] = useState(true)
   const [loadingMonthly, setLoadingMonthly] = useState(true)
   const [loadingPayTypes, setLoadingPayTypes] = useState(true)
-  const [loadingIncome, setLoadingIncome] = useState(true)
+  const [loadingYearlyWeeks, setLoadingYearlyWeeks] = useState(true)
 
   const [error, setError] = useState<string | null>(null)
-
-  const currentWeek = getCurrentWeek()
 
   const fetchData = useCallback(async (year: number) => {
     setError(null)
@@ -38,17 +35,6 @@ export const DashboardTab: React.FC = () => {
       setError('Failed to load summary data')
     } finally {
       setLoadingSummary(false)
-    }
-
-    try {
-      setLoadingWeekly(true)
-      const weeklyRes = await apiClient.getWeekly(currentWeek)
-      setWeeklyData(weeklyRes)
-    } catch (err) {
-      console.error('Failed to fetch weekly:', err)
-      setError('Failed to load weekly data')
-    } finally {
-      setLoadingWeekly(false)
     }
 
     try {
@@ -74,57 +60,33 @@ export const DashboardTab: React.FC = () => {
     }
 
     try {
-      setLoadingIncome(true)
-      const incomeRes = await apiClient.getIncome(year)
-      setIncomeData(incomeRes)
+      setLoadingYearlyWeeks(true)
+      const yearlyWeeksRes = await apiClient.getYearlyWeeks(year)
+      setYearlyWeeksData(yearlyWeeksRes)
     } catch (err) {
-      console.error('Failed to fetch income:', err)
-      setError('Failed to load income data')
+      console.error('Failed to fetch yearly weeks:', err)
     } finally {
-      setLoadingIncome(false)
+      setLoadingYearlyWeeks(false)
     }
-  }, [currentWeek])
+  }, [])
 
   useEffect(() => {
     fetchData(selectedYear)
-  }, [selectedYear, fetchData])
-
-  const handleYearChange = (year: number) => {
-    setSelectedYear(year)
-  }
+  }, [selectedYear, refreshKey, fetchData])
 
   return (
     <div className="space-y-6">
-      {/* Header with Year Selector */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold text-white">Dashboard</h2>
-        <YearSelector selectedYear={selectedYear} onYearChange={handleYearChange} />
-      </div>
-
-      {/* Error Message */}
       {error && (
-        <div className="bg-red-900 border border-red-700 rounded-lg p-4 text-red-200">
+        <div className="bg-erebor-debit-dim border border-erebor-debit rounded-lg p-4 text-erebor-parchment-dim">
           {error}
         </div>
       )}
 
-      {/* YTD Summary Cards */}
+      <LaborTrackingTile />
       <YTDCards data={summary} loading={loadingSummary} />
-
-      {/* Current Week KPI Card */}
-      <WeekKPICard weekData={weeklyData} loading={loadingWeekly} />
-
-      {/* Weekly 7-Day Table */}
-      <WeeklyTable data={weeklyData} loading={loadingWeekly} />
-
-      {/* Monthly Bar Chart */}
+      <WeeklyTable data={yearlyWeeksData?.weeks ?? null} loading={loadingYearlyWeeks} />
       <MonthlyChart data={monthlyData} loading={loadingMonthly} />
-
-      {/* Pay Type Breakdown */}
       <PayTypeBreakdown data={payTypesData} loading={loadingPayTypes} />
-
-      {/* Income Projections */}
-      <IncomeProjection data={incomeData} loading={loadingIncome} />
     </div>
   )
 }
